@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sky Defender</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            background: #0b0914;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            margin: 5px 0;
+            color: #ffb7c5;
+            text-shadow: 0 0 10px rgba(255, 183, 197, 0.5);
+        }
+        #score-board {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 500px;
+            background: linear-gradient(to bottom, #141125, #1c183a);
+            border: 4px solid #ffb7c5;
+            box-shadow: 0 0 20px rgba(255, 183, 197, 0.3);
+            overflow: hidden;
+        }
+        /* The Red Danger Line */
+        #danger-line {
+            position: absolute;
+            bottom: 40px;
+            width: 100%;
+            height: 2px;
+            background: #ff4757;
+            box-shadow: 0 0 8px #ff4757;
+        }
+        /* The Player Plane */
+        #player {
+            position: absolute;
+            bottom: 8px;
+            left: 180px;
+            width: 40px;
+            height: 30px;
+            background: #00d2d3;
+            border-radius: 5px;
+            transition: background 0.1s;
+        }
+        /* Plane Wings Wings */
+        #player::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            left: -10px;
+            width: 60px;
+            height: 10px;
+            background: #00d2d3;
+            border-radius: 3px;
+        }
+        /* Obstacles */
+        .obstacle {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #ff6b6b;
+            border-radius: 4px;
+            box-shadow: 0 0 8px #ff6b6b;
+        }
+        /* Lasers */
+        .laser {
+            position: absolute;
+            width: 4px;
+            height: 15px;
+            background: #feca57;
+            box-shadow: 0 0 6px #feca57;
+            border-radius: 2px;
+        }
+        /* Screen Overlays */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(11, 9, 20, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        button {
+            background: #ffb7c5;
+            color: #0b0914;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        button:hover {
+            background: #fff;
+            box-shadow: 0 0 10px #fff;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SKY DEFENDER</h1>
+    <div id="score-board">Score: <span id="score">0</span></div>
+
+    <div id="game-container">
+        <!-- Danger Line -->
+        <div id="danger-line"></div>
+        
+        <!-- Player Plane -->
+        <div id="player"></div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen">
+            <p>Don't let obstacles cross the red line!</p>
+            <p>Left/Right Arrows to Move<br>Spacebar to Shoot</p>
+            <button onclick="startGame()">START GAME</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="screen hidden">
+            <h2 style="color: #ff4757;">GAME OVER</h2>
+            <p>An obstacle breached the perimeter!</p>
+            <p>Final Score: <span id="final-score">0</span></p>
+            <button onclick="startGame()">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <script>
+        const container = document.getElementById('game-container');
+        const player = document.getElementById('player');
+        const scoreDisplay = document.getElementById('score');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+
+        let playerX = 180;
+        const playerSpeed = 8;
+        let keys = {};
+        let obstacles = [];
+        let lasers = [];
+        let score = 0;
+        let gameActive = false;
+        let spawnTimer;
+        let gameLoopId;
+
+        // Listen for keyboard input
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space' && gameActive) {
+                shootLaser();
+                e.preventDefault(); // Stop window scrolling
+            }
+        });
+        document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        function startGame() {
+            // Reset state
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            // Clear old entities from DOM
+            obstacles.forEach(obs => obs.element.remove());
+            lasers.forEach(laser => laser.element.remove());
+            
+            obstacles = [];
+            lasers = [];
+            score = 0;
+            playerX = 180;
+            player.style.left = playerX + 'px';
+            scoreDisplay.innerText = score;
+            gameActive = true;
+
+            // Start loops
+            clearInterval(spawnTimer);
+            cancelAnimationFrame(gameLoopId);
+            
+            spawnTimer = setInterval(spawnObstacle, 1200);
+            gameLoop();
+        }
+
+        function spawnObstacle() {
+            if (!gameActive) return;
+            const element = document.createElement('div');
+            element.classList.add('obstacle');
+            
+            // Random horizontal position within boundaries
+            const x = Math.floor(Math.random() * 370);
+            element.style.left = x + 'px';
+            element.style.top = '0px';
+            container.appendChild(element);
+
+            obstacles.push({
+                element: element,
+                x: x,
+                y: 0,
+                speed: 2 + Math.random() * 2 // Variable speeds
+            });
+        }
+
+        function shootLaser() {
+            const element = document.createElement('div');
+            element.classList.add('laser');
+            
+            // Position laser right out the nose of the plane
+            const x = playerX + 18; 
+            const y = 460; 
+            element.style.left = x + 'px';
+            element.style.top = y + 'px';
+            container.appendChild(element);
+
+            lasers.push({ element: element, x: x, y: y });
+        }
+
+        function gameOver() {
+            gameActive = false;
+            clearInterval(spawnTimer);
+            cancelAnimationFrame(gameLoopId);
+            finalScoreDisplay.innerText = score;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function gameLoop() {
+            if (!gameActive) return;
+
+            // 1. Move Player
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                playerX = Math.max(10, playerX - playerSpeed);
+            }
+            if (keys['ArrowRight'] || keys['KeyD']) {
+                playerX = Math.min(350, playerX + playerSpeed);
+            }
+            player.style.left = playerX + 'px';
+
+            // 2. Move Lasers
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                let laser = lasers[i];
+                laser.y -= 7;
+                laser.element.style.top = laser.y + 'px';
+
+                // Remove off-screen lasers
+                if (laser.y < 0) {
+                    laser.element.remove();
+                    lasers.splice(i, 1);
+                }
+            }
+
+            // 3. Move Obstacles & Check Red Line Failure Condition
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.y += obs.speed;
+                obs.element.style.top = obs.y + 'px';
+
+                // CRITICAL RULE: If obstacle hits the red line (Y coordinate around 458px) -> Lose!
+                if (obs.y >= 430) { 
+                    gameOver();
+                    return;
+                }
+
+                // 4. Collision Detection (Laser hits Obstacle)
+                for (let j = lasers.length - 1; j >= 0; j--) {
+                    let laser = lasers[j];
+
+                    if (
+                        laser.x > obs.x && 
+                        laser.x < obs.x + 30 && 
+                        laser.y > obs.y && 
+                        laser.y < obs.y + 30
+                    ) {
+                        // Explode target
+                        obs.element.remove();
+                        obstacles.splice(i, 1);
+                        
+                        laser.element.remove();
+                        lasers.splice(j, 1);
+
+                        score += 10;
+                        scoreDisplay.innerText = score;
+                        break; // Stop checking this obstacle since it died
+                    }
+                }
+            }
+
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
